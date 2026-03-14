@@ -1,4 +1,5 @@
-const API_BASE = 'http://127.0.0.1:8000'
+// Empty when built for Docker (same-origin); set in dev or via VITE_API_BASE
+const API_BASE = (import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8000').toString()
 
 async function jsonFetch(urlOrPath, body) {
   const url = urlOrPath.startsWith('http') ? urlOrPath : `${API_BASE}${urlOrPath.startsWith('/') ? urlOrPath : `/${urlOrPath}`}`

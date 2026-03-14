@@ -156,3 +156,9 @@ def reset():
     sessions.clear()
 
     return {"status": "reset"}
+
+
+# Serve built frontend (when running in Docker; static/ is populated at build time)
+if Path("static").exists():
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/", StaticFiles(directory="static", html=True), name="static")

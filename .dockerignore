@@ -1,0 +1,15 @@
+venv
+.env
+.git
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+ui/node_modules
+ui/dist
+runs
+*.md
+.cursor
+.idea
+*.log
