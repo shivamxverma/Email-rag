@@ -1,6 +1,7 @@
 pandas
 jupyter
 rank-bm25
+pymupdf
 fastapi
 uvicorn
 streamlit

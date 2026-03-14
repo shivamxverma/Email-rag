@@ -42,17 +42,21 @@ def _get_model():
 
 
 def _build_context(results):
-    """Turn retrieval results into a single context string with message IDs for citations."""
+    """Turn retrieval results into a single context string with message IDs (and page for attachments) for citations."""
     parts = []
     for score, doc in results:
         mid = doc.get("message_id", "")
+        page = doc.get("page_no")
         text = (doc.get("text") or "")[:4000]
-        parts.append(f"[msg: {mid}]\n{text}")
+        if page is not None:
+            parts.append(f"[msg: {mid}, page: {page}]\n{text}")
+        else:
+            parts.append(f"[msg: {mid}]\n{text}")
     return "\n\n---\n\n".join(parts)
 
 
 def _extract_citations(text):
-    """Extract [msg: ...] citations from model output."""
+    """Extract [msg: ...] and [msg: ..., page: n] citations from model output."""
     return list(dict.fromkeys(re.findall(r"\[msg:\s*[^\]]+\]", text)))
 
 
@@ -62,14 +66,14 @@ You must respond with exactly one JSON object (no other text, no markdown fences
 {"answer": "<your answer text>", "citations": ["[msg: <id>]", ...]}
 
 Rules for "answer":
-- Use ONLY the email excerpts above. Do not invent information.
+- Use ONLY the email/attachment excerpts above. Do not invent information.
 - Write in a clean, readable format: short paragraphs (2–4 sentences), clear sentences, proper punctuation.
 - For lists or multiple points, use line breaks between items or short bullet-like phrases.
-- When referring to a specific message, add the citation at the end of that sentence: [msg: <message_id>]. The message_id is at the start of each excerpt above.
+- When referring to an email, add: [msg: <message_id>]. When referring to an attachment page, add: [msg: <message_id>, page: <n>]. The message_id and optional page are at the start of each excerpt above.
 - Be concise and direct. No preamble like "Based on the emails..."; start with the answer.
 
 Rules for "citations":
-- Array of strings. List every [msg: <message_id>] you used in the answer, e.g. ["[msg: abc123]", "[msg: def456]"].
+- Array of strings. List every citation you used, e.g. ["[msg: abc123]", "[msg: def456, page: 2]"]. Use [msg: <id>, page: <n>] for attachment excerpts.
 - If no message is cited, use "citations": [].
 """
 
@@ -77,10 +81,11 @@ Rules for "citations":
 def generate_answer(query, results, model=None):
     """
     Use Gemini to answer the user query from the retrieved excerpts.
-    Returns (answer_text, list of citation strings like "[msg: ...]") in a strict format.
+    Returns (answer_text, list of citation strings like "[msg: ...]", usage_dict).
+    usage_dict may contain input_tokens, output_tokens, total_tokens from the API.
     """
     if not results:
-        return "I couldn't find any relevant messages to answer from.", []
+        return "I couldn't find any relevant messages to answer from.", [], {}
 
     context = _build_context(results)
     model_id = (model or _get_model()).strip().strip('"') or _SUPPORTED_DEFAULT
@@ -114,6 +119,18 @@ Respond with only the JSON object:"""
                 contents=prompt,
             )
             raw = (response.text or "").strip()
+            usage = {}
+            try:
+                um = getattr(response, "usage_metadata", None)
+                if um is not None:
+                    if getattr(um, "prompt_token_count", None) is not None:
+                        usage["input_tokens"] = um.prompt_token_count
+                    if getattr(um, "candidates_token_count", None) is not None:
+                        usage["output_tokens"] = um.candidates_token_count
+                    if getattr(um, "total_token_count", None) is not None:
+                        usage["total_tokens"] = um.total_token_count
+            except Exception:
+                pass
             last_error = None
             break
         except Exception as e:
@@ -132,15 +149,16 @@ Respond with only the JSON object:"""
                     return (
                         "Gemini API quota exceeded (free tier limit). Wait a minute and try again, or create a new API key at https://ai.google.dev/",
                         [],
+                        {},
                     )
-                return f"Error calling Gemini: {e}", []
+                return f"Error calling Gemini: {e}", [], {}
     else:
         if last_error:
-            return f"Error calling Gemini: {last_error}", []
-        return "No answer generated.", []
+            return f"Error calling Gemini: {last_error}", [], {}
+        return "No answer generated.", [], {}
 
     if not raw:
-        return "No answer generated.", []
+        return "No answer generated.", [], {}
 
     # Parse strict JSON response
     try:
@@ -154,8 +172,8 @@ Respond with only the JSON object:"""
         if not isinstance(citations, list):
             citations = []
         citations = [str(c).strip() for c in citations if c]
-        return (answer or "No answer generated. Please try again."), citations
+        return (answer or "No answer generated. Please try again."), citations, usage
     except (json.JSONDecodeError, TypeError):
         # Fallback: treat whole response as answer and extract citations
         citations = _extract_citations(raw)
-        return (raw or "No answer generated. Please try again."), citations
+        return (raw or "No answer generated. Please try again."), citations, usage

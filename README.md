@@ -1,8 +1,10 @@
 # Email Thread RAG
 
-Chat over email threads with RAG (Gemini). React UI + FastAPI backend.
+Chat over email threads with RAG (retrieval-augmented generation). React UI + FastAPI backend. Answers are grounded in the selected thread with message-level citations.
 
-## Run with Docker (one command)
+## Setup and run
+
+### With Docker (one command)
 
 From the project root, with a `.env` containing `GEMINI_API_KEY` and optionally `GEMINI_MODEL`:
 
@@ -10,10 +12,50 @@ From the project root, with a `.env` containing `GEMINI_API_KEY` and optionally 
 docker compose up --build
 ```
 
-Then open **http://localhost:8000** in your browser. The UI and API run in one container.
+Then open **http://localhost:8000** in your browser. The container runs the **indexer** (`ingest.py`) on startup, then the API and UI. Ensure `data/threaded_emails.json` exists in the image (e.g. run `python ingest.py` locally first with `data/emails.csv`, or copy a pre-built `data/` into the build context).
 
-## Run locally
+### Run locally
 
-1. Backend: `uvicorn app.main:app --reload --port 8000`
-2. Frontend: `cd ui && npm install && npm run dev`
-3. Ensure `.env` has `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`).
+1. **Index (once):** If you have `data/emails.csv` (e.g. from the [Enron dataset](https://www.kaggle.com/datasets/wcukierski/enron-email-dataset)), run:
+   ```bash
+   python ingest.py
+   ```
+   This writes `data/threaded_emails.json`. If you already have that file (e.g. from the dataset-cleaning notebook), you can skip this.
+
+2. **Backend:** `uvicorn app.main:app --reload --port 8000`
+3. **Frontend:** `cd ui && npm install && npm run dev`
+4. **Environment:** `.env` with `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`).
+
+## Dataset
+
+See **[DATASET.md](DATASET.md)** for source, how the slice was selected, counts, preprocessing, and license.
+
+## Retrieval
+
+- **Baseline:** BM25 (keyword) only, implemented with `rank_bm25.BM25Okapi`. Retrieval is **thread-scoped** by default: when a session is tied to a `thread_id`, only chunks from that thread are searched. Optional **search outside thread** (UI toggle or `search_outside_thread=true`) allows global search.
+- **Index:** Emails are stored as one chunk per message (`data/threaded_emails.json`). Attachment chunking (with `page_no`) is optional and can be added via the indexer.
+
+## Design choices and limitations
+
+- **Sessions:** One session per thread; conversation history is the last few turns (no rolling summary). Entity notes (people, dates, amounts, filenames) are not yet extracted; query rewrite is a simple concatenation of the previous user turn with the current query.
+- **Answering:** Gemini is used to generate answers from retrieved excerpts. Citations are inline `[msg: <message_id>]`; attachment citations `[msg: <id>, page: <n>]` apply when attachment chunks are added.
+- **Free path:** The app runs with the **Gemini API free tier** (set `GEMINI_API_KEY`). No paid resources are required for evaluation.
+
+## How to test
+
+1. Start a session by choosing a thread and clicking “Start Session”.
+2. Ask a question about that thread (e.g. “What was discussed about the forecast?”). Check that the answer cites message IDs from the debug panel.
+3. Toggle “Search outside thread” and ask again; retrieval may include messages from other threads.
+4. Inspect `runs/<timestamp>/trace.jsonl` for each turn (query, rewrite, retrieved, citations, latency).
+
+## Sample questions and expected citations
+
+See **[SAMPLES.md](SAMPLES.md)** for 5–10 example questions on a chosen thread with expected message (and optional page) citations.
+
+## API
+
+- `POST /start_session` — body `{ "thread_id": "T-001" }` → `{ "session_id": "..." }`
+- `POST /ask` — body `{ "session_id": "...", "text": "...", "search_outside_thread": false }` → `{ "answer", "citations", "rewrite", "retrieved", "trace_id", "latency", ... }`
+- `POST /switch_thread` — body `{ "thread_id": "..." }`
+- `POST /reset_session`
+- `GET /threads` — returns list of `{ "thread_id", "label" }` for the UI dropdown (when implemented).

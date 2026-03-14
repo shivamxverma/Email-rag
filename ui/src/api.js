@@ -41,6 +41,14 @@ async function jsonFetch(urlOrPath, body) {
   }
 }
 
+export async function fetchThreads() {
+  const url = `${API_BASE}/threads`
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(res.statusText)
+  const data = await res.json()
+  return data.threads ?? []
+}
+
 export function startSession({ thread_id }) {
   return jsonFetch(`${API_BASE}/start_session`, { thread_id })
 }

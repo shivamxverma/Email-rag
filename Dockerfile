@@ -17,6 +17,7 @@ WORKDIR /app
 # Data and app
 COPY requirements.txt ./
 COPY app/ ./app/
+COPY ingest.py ./
 COPY data/ ./data/
 
 RUN pip install --no-cache-dir -r requirements.txt
@@ -27,7 +28,11 @@ COPY --from=frontend /build/dist ./static
 # Optional: create runs dir for trace logs
 RUN mkdir -p runs
 
+COPY entrypoint.sh ./
+RUN chmod +x entrypoint.sh
+
 EXPOSE 8000
 
 # Env: pass GEMINI_API_KEY, GEMINI_MODEL via --env-file .env or -e
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Entrypoint runs index (ingest.py) then starts API + UI
+CMD ["./entrypoint.sh"]

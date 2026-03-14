@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from rank_bm25 import BM25Okapi
 
 with open("data/threaded_emails.json") as f:
@@ -13,16 +14,42 @@ for e in emails:
 
     {e.get('body','')}
     """
-
     documents.append({
         "thread_id": e["thread_id"],
-        "message_id": e.get("message_id",""),
-        "text": text.strip()
+        "message_id": e.get("message_id", ""),
+        "text": text.strip(),
     })
+
+# Optional: attachment chunks (message_id, page_no, text, thread_id)
+_attachment_path = Path("data/attachment_chunks.json")
+if _attachment_path.exists():
+    try:
+        with open(_attachment_path) as af:
+            for ch in json.load(af):
+                documents.append({
+                    "thread_id": ch.get("thread_id") or "",
+                    "message_id": ch.get("message_id", ""),
+                    "text": (ch.get("text") or "").strip(),
+                    "page_no": ch.get("page_no"),
+                })
+    except Exception:
+        pass
 
 corpus = [doc["text"].lower().split() for doc in documents]
 
 bm25 = BM25Okapi(corpus)
+
+# Thread list for API: thread_id -> label (first subject_clean in that thread)
+_thread_labels = {}
+for e in emails:
+    t = e.get("thread_id", "")
+    if t and t not in _thread_labels:
+        _thread_labels[t] = (e.get("subject_clean") or e.get("subject") or t)[:80]
+
+
+def list_threads():
+    """Return list of {thread_id, label} for ingested threads."""
+    return [{"thread_id": tid, "label": _thread_labels.get(tid, tid)} for tid in sorted(_thread_labels)]
 
 
 def search(query, thread_id=None, top_k=5):
