@@ -25,12 +25,12 @@ def parse_email(raw: str) -> dict:
         return {}
     data = {}
     fields = [
-        "Message-ID", "Date", "From", "To", "Subject",
+        "Message-ID", "Date", "From", "To", "Cc", "Subject",
         "X-From", "X-To", "X-Folder",
     ]
     for field in fields:
         match = re.search(rf"{field}:\s*(.*)", raw, re.IGNORECASE)
-        key = field.lower().replace("-", "_")
+        key = field.lower().replace("-", "_")  # Cc -> cc
         data[key] = (match.group(1).strip() if match else "").strip()
     parts = raw.split("\n\n", 1)
     data["body"] = (parts[1].strip() if len(parts) > 1 else "").strip()
@@ -83,21 +83,54 @@ def extract_pdf_pages(path: Path) -> list[tuple[int, str]]:
     return out
 
 
+def extract_txt(path: Path) -> list[tuple[int, str]]:
+    """Return [(1, full_text)] for a single-page text file."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace").strip()
+        return [(1, text)] if text else []
+    except Exception:
+        return []
+
+
+def extract_html(path: Path) -> list[tuple[int, str]]:
+    """Return [(1, text)] with tags stripped (simple regex)."""
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        text = re.sub(r"<[^>]+>", " ", raw)
+        text = re.sub(r"\s+", " ", text).strip()
+        return [(1, text)] if text else []
+    except Exception:
+        return []
+
+
 def run_attachment_ingest(attachments_dir: Path, output_path: Path, message_id_from_name: str = "") -> None:
-    """Scan attachments_dir for PDFs, extract text per page, chunk, write attachment_chunks.json."""
+    """Scan attachments_dir for PDF/TXT/HTML, extract text, chunk, write attachment_chunks.json."""
     if not attachments_dir.exists():
         return
     chunks_out = []
+    doc_idx = [0]  # mutable for closure
+
+    def add_chunks(message_id: str, page_no: int, text: str, thread_id: str = "") -> None:
+        for block in chunk_text(text, chunk_size=800, overlap=100):
+            chunks_out.append({
+                "doc_id": f"att_{doc_idx[0]}",
+                "message_id": message_id,
+                "page_no": page_no,
+                "text": block,
+                "thread_id": thread_id,
+            })
+            doc_idx[0] += 1
+
     for f in attachments_dir.rglob("*.pdf"):
         for page_no, text in extract_pdf_pages(f):
-            for i, block in enumerate(chunk_text(text, chunk_size=800, overlap=100)):
-                # If one page yields multiple chunks, we still use same page_no for citation
-                chunks_out.append({
-                    "message_id": message_id_from_name or f"att_{f.stem}",
-                    "page_no": page_no,
-                    "text": block,
-                    "thread_id": "",  # optional: set when attachment is tied to a thread
-                })
+            add_chunks(message_id_from_name or f"att_{f.stem}", page_no, text)
+    for f in attachments_dir.rglob("*.txt"):
+        for page_no, text in extract_txt(f):
+            add_chunks(message_id_from_name or f"att_{f.stem}", page_no, text)
+    for f in attachments_dir.rglob("*.html"):
+        for page_no, text in extract_html(f):
+            add_chunks(message_id_from_name or f"att_{f.stem}", page_no, text)
+
     if chunks_out:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w") as f:
@@ -105,7 +138,12 @@ def run_attachment_ingest(attachments_dir: Path, output_path: Path, message_id_f
         print(f"Wrote {len(chunks_out)} attachment chunks to {output_path}.")
 
 
-def run_ingest(emails_csv: Path, output_path: Path, max_messages: int = 50000) -> None:
+def run_ingest(
+    emails_csv: Path,
+    output_path: Path,
+    max_messages: int = 50000,
+    max_threads: int | None = None,
+) -> None:
     """Load emails from CSV, parse, thread, and write threaded_emails.json."""
     if not emails_csv.exists():
         raise FileNotFoundError(
@@ -129,16 +167,19 @@ def run_ingest(emails_csv: Path, output_path: Path, max_messages: int = 50000) -
         count += size
         if count >= max_messages:
             break
+        if max_threads is not None and len(selected) >= max_threads:
+            break
     dataset = df_clean[df_clean["subject_clean"].isin(selected)].copy()
     thread_map = {s: f"T-{i:03d}" for i, s in enumerate(selected, start=1)}
     dataset["thread_id"] = dataset["subject_clean"].map(thread_map)
     out_cols = [
-        "message_id", "date", "from", "to", "subject", "body",
+        "message_id", "date", "from", "to", "cc", "subject", "body",
         "subject_clean", "thread_id", "x_from", "x_to", "x_folder", "file",
     ]
     out_cols = [c for c in out_cols if c in dataset.columns]
     records = dataset[out_cols].to_dict(orient="records")
-    for r in records:
+    for i, r in enumerate(records):
+        r["doc_id"] = f"em_{i}"
         for k, v in list(r.items()):
             if pd.isna(v):
                 r[k] = None
@@ -174,17 +215,23 @@ def main():
         "--max-messages",
         type=int,
         default=50000,
-        help="Max messages to include (by adding threads in size order)",
+        help="Max messages to include (by adding threads in size order). Use 300 for assignment-style slice.",
+    )
+    parser.add_argument(
+        "--max-threads",
+        type=int,
+        default=None,
+        help="Max threads to include (e.g. 20 for 10–20 thread slice). Optional.",
     )
     parser.add_argument(
         "--attachments-dir",
         type=Path,
         default=None,
-        help="Optional: directory of PDF attachments to index (writes data/attachment_chunks.json)",
+        help="Optional: directory of PDF/TXT/HTML attachments to index (writes data/attachment_chunks.json)",
     )
     args = parser.parse_args()
     try:
-        run_ingest(args.emails_csv, args.output, args.max_messages)
+        run_ingest(args.emails_csv, args.output, args.max_messages, args.max_threads)
     except FileNotFoundError as e:
         if args.output.exists():
             print(f"Note: {args.emails_csv} not found; using existing {args.output}.", file=sys.stderr)

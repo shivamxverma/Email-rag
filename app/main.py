@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app.retrieval import search, list_threads
+from app.retrieval import search, list_threads, get_thread_timeline
 from app.memory import start_session, sessions, update_memory, get_entity_context
 from app.answer import generate_answer
 
@@ -117,6 +117,44 @@ def ask(req: AskRequest, search_outside_thread: bool = False):
 
     thread_id = sessions[session_id]["thread_id"]
     trace_id = str(uuid.uuid4())
+
+    # Timeline: if user asks for "timeline" / "who said what when", return timeline with citations
+    q_lower = user_query.lower().strip()
+    if any(phrase in q_lower for phrase in ("timeline", "who said what", "who wrote what", "when did who", "chronological order", "order of messages")):
+        try:
+            timeline = get_thread_timeline(thread_id)
+            lines = []
+            citations = []
+            for row in timeline:
+                mid = row.get("message_id", "")
+                if mid:
+                    citations.append(f"[msg: {mid}]")
+                lines.append(
+                    f"{row.get('date', '')} | From: {row.get('from', '')} | To: {row.get('to', '')} | "
+                    f"[msg: {mid}]\n  Subject: {row.get('subject', '')}\n  {row.get('body_snippet', '')[:150]}..."
+                )
+            answer = "Timeline for this thread (who said what, when):\n\n" + "\n\n".join(lines) if lines else "No messages found in this thread."
+            update_memory(session_id, user_query, answer)
+            latency = time.time() - start_time
+            trace = {
+                "trace_id": trace_id,
+                "query": user_query,
+                "rewrite": user_query,
+                "thread_id": thread_id,
+                "retrieved": [],
+                "retrieved_used": [],
+                "citations": citations,
+                "answer": answer,
+                "latency": latency,
+                "token_counts": {},
+            }
+            try:
+                log_trace(trace)
+            except Exception:
+                pass
+            return trace
+        except Exception as e:
+            pass  # fall through to normal RAG
 
     try:
         rewritten = rewrite_query(session_id, user_query)

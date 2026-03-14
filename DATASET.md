@@ -18,12 +18,24 @@
 
 ## Final counts and size
 
-- **Threads:** 15 (or as produced by the last run of the dataset-cleaning notebook).
-- **Messages:** ~25,000+ (exact count from `len(threaded_emails)` in the notebook / indexer output).
-- **Attachments:** 0 in the current email-only slice (assignment target 20–50 attachments is optional; add attachment indexing to reach it).
-- **Approximate indexed text size:** ~1.5–2 MB (sum of body lengths).
+To match the assignment’s recommended slice (10–20 threads, 100–300 messages, 20–50 attachments):
 
-These numbers may vary slightly between runs; the authoritative counts are those printed when running `ingest.py` or the dataset-cleaning notebook.
+```bash
+python ingest.py --max-threads 20 --max-messages 300
+```
+
+If you have a folder of PDF (or TXT/HTML) attachments tied to the thread, add:
+
+```bash
+python ingest.py --max-threads 20 --max-messages 300 --attachments-dir path/to/attachments
+```
+
+- **Threads:** Controlled by `--max-threads` (e.g. 20) and thread order in the source data.
+- **Messages:** Controlled by `--max-messages` (e.g. 300). Stops when either limit is reached.
+- **Attachments:** Number of chunks from `--attachments-dir` (PDF/TXT/HTML). Use 20–50 attachment files to reach the 20–50 attachment target.
+- **Approximate indexed text size:** Keep under 50–100 MB (sum of body lengths + attachment text).
+
+Without these flags, the default is a larger slice (~50k messages). The authoritative counts are those printed when running `ingest.py`.
 
 ## Preprocessing
 

@@ -33,11 +33,11 @@ See **[DATASET.md](DATASET.md)** for source, how the slice was selected, counts,
 ## Retrieval
 
 - **Baseline:** BM25 (keyword) only, implemented with `rank_bm25.BM25Okapi`. Retrieval is **thread-scoped** by default: when a session is tied to a `thread_id`, only chunks from that thread are searched. Optional **search outside thread** (UI toggle or `search_outside_thread=true`) allows global search.
-- **Index:** Emails are stored as one chunk per message (`data/threaded_emails.json`). Attachment chunking (with `page_no`) is optional and can be added via the indexer.
+- **Index:** Emails are stored as one chunk per message (`data/threaded_emails.json`) with `doc_id`, `thread_id`, `message_id`. Attachment chunking (PDF/TXT/HTML, with `page_no` for PDFs) is optional via `ingest.py --attachments-dir`.
 
 ## Design choices and limitations
 
-- **Sessions:** One session per thread; conversation history is the last few turns (no rolling summary). Entity notes (people, dates, amounts, filenames) are not yet extracted; query rewrite is a simple concatenation of the previous user turn with the current query.
+- **Sessions:** One session per thread; conversation history is the last few turns (no rolling summary). Entity notes (dates, amounts, filenames) are extracted from the conversation and used in query rewrite; people are not yet extracted.
 - **Answering:** Gemini is used to generate answers from retrieved excerpts. Citations are inline `[msg: <message_id>]`; attachment citations `[msg: <id>, page: <n>]` apply when attachment chunks are added.
 - **Free path:** The app runs with the **Gemini API free tier** (set `GEMINI_API_KEY`). No paid resources are required for evaluation.
 
@@ -58,4 +58,4 @@ See **[SAMPLES.md](SAMPLES.md)** for 5–10 example questions on a chosen thread
 - `POST /ask` — body `{ "session_id": "...", "text": "...", "search_outside_thread": false }` → `{ "answer", "citations", "rewrite", "retrieved", "trace_id", "latency", ... }`
 - `POST /switch_thread` — body `{ "thread_id": "..." }`
 - `POST /reset_session`
-- `GET /threads` — returns list of `{ "thread_id", "label" }` for the UI dropdown (when implemented).
+- `GET /threads` — returns list of `{ "thread_id", "label" }` for the UI dropdown. When the user asks for a timeline (e.g. "Show timeline" or "Who said what when?"), the `/ask` response returns a chronological timeline with citations.

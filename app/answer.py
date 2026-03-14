@@ -67,6 +67,7 @@ You must respond with exactly one JSON object (no other text, no markdown fences
 
 Rules for "answer":
 - Use ONLY the email/attachment excerpts above. Do not invent information.
+- If the excerpts do NOT contain enough information to answer the question: either ask one short follow-up question (e.g. "Which time period do you mean?") OR state briefly what is missing (e.g. "The excerpts don't mention an approval amount."). Do not make up details.
 - Write in a clean, readable format: short paragraphs (2–4 sentences), clear sentences, proper punctuation.
 - For lists or multiple points, use line breaks between items or short bullet-like phrases.
 - When referring to an email, add: [msg: <message_id>]. When referring to an attachment page, add: [msg: <message_id>, page: <n>]. The message_id and optional page are at the start of each excerpt above.
