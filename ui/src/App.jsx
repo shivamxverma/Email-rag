@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 import ThreadSelector from './components/ThreadSelector.jsx'
 import ChatWindow from './components/ChatWindow.jsx'
 import ChatInput from './components/ChatInput.jsx'
@@ -9,9 +9,27 @@ function makeId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
+// 15 threads with clear labels (backend uses thread_id, e.g. T-001)
+const THREAD_OPTIONS = [
+  { id: 'T-001', label: 'General correspondence & forecasts' },
+  { id: 'T-002', label: 'Demand – Ken Lay stock sales / donations' },
+  { id: 'T-003', label: 'Schedule crawler – hourahead failure' },
+  { id: 'T-004', label: 'Enron mentions' },
+  { id: 'T-005', label: 'Schedule crawler – hourahead (codesite)' },
+  { id: 'T-006', label: 'Entouch newsletter' },
+  { id: 'T-007', label: 'General (no subject)' },
+  { id: 'T-008', label: 'Lunch' },
+  { id: 'T-009', label: 'Hey' },
+  { id: 'T-010', label: 'Meeting' },
+  { id: 'T-011', label: 'Hi' },
+  { id: 'T-012', label: 'Organizational announcement' },
+  { id: 'T-013', label: 'Organizational changes' },
+  { id: 'T-014', label: 'Congratulations' },
+  { id: 'T-015', label: 'APB checkout' },
+]
+
 export default function App() {
-  const threadIds = useMemo(() => ['T-001', 'T-002', 'T-003'], [])
-  const [threadId, setThreadId] = useState(threadIds[0])
+  const [threadId, setThreadId] = useState(THREAD_OPTIONS[0].id)
   const [sessionId, setSessionId] = useState('')
   const [searchOutsideThread, setSearchOutsideThread] = useState(false)
 
@@ -115,7 +133,7 @@ export default function App() {
         <div className="md:col-span-2">
           <ThreadSelector
             threadId={threadId}
-            threadIds={threadIds}
+            threadOptions={THREAD_OPTIONS}
             onChangeThreadId={setThreadId}
             onStartSession={onStartSession}
             sessionId={sessionId}

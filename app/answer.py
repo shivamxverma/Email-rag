@@ -29,7 +29,7 @@ def _get_client():
 
 
 # Deprecated models return 404; use this fallback if user still has one in .env
-_SUPPORTED_DEFAULT = "gemini-2.0-flash"
+_SUPPORTED_DEFAULT = "gemini-2.5-flash"
 
 def _get_model():
     _ensure_dotenv()
@@ -127,6 +127,12 @@ Respond with only the JSON object:"""
                 wait = min(wait, 120)  # cap at 2 minutes
                 time.sleep(wait)
             else:
+                err_msg = str(e)
+                if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg or "quota" in err_msg.lower():
+                    return (
+                        "Gemini API quota exceeded (free tier limit). Wait a minute and try again, or create a new API key at https://ai.google.dev/",
+                        [],
+                    )
                 return f"Error calling Gemini: {e}", []
     else:
         if last_error:

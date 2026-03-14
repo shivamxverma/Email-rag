@@ -2,5 +2,5 @@
 venv/
 __pycache__/
 *.pyc
-runs/
-data/
+data/emails.csv
+data/threaded_emails.json

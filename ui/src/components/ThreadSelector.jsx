@@ -2,7 +2,7 @@ import React from 'react'
 
 export default function ThreadSelector({
   threadId,
-  threadIds,
+  threadOptions,
   onChangeThreadId,
   onStartSession,
   sessionId,
@@ -17,14 +17,14 @@ export default function ThreadSelector({
             Thread
           </span>
           <select
-            className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 transition-colors hover:border-slate-400 focus:border-slate-500"
+            className="h-9 min-w-[220px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-800 transition-colors hover:border-slate-400 focus:border-slate-500"
             value={threadId}
             onChange={(e) => onChangeThreadId(e.target.value)}
             disabled={loading}
           >
-            {threadIds.map((id) => (
+            {threadOptions.map(({ id, label }) => (
               <option key={id} value={id}>
-                {id}
+                {label}
               </option>
             ))}
           </select>
