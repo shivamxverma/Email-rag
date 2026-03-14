@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 data/emails.csv
 data/threaded_emails.json
+data/
+*.csv
+*.json
+runs/data/
