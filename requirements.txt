@@ -1,0 +1,8 @@
+pandas
+jupyter
+rank-bm25
+fastapi
+uvicorn
+streamlit
+google-genai
+python-dotenv
