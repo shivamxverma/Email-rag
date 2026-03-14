@@ -1,7 +1,10 @@
-async function jsonFetch(path, body) {
+const API_BASE = 'http://127.0.0.1:8000'
+
+async function jsonFetch(urlOrPath, body) {
+  const url = urlOrPath.startsWith('http') ? urlOrPath : `${API_BASE}${urlOrPath.startsWith('/') ? urlOrPath : `/${urlOrPath}`}`
   let res
   try {
-    res = await fetch(path, {
+    res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -38,10 +41,10 @@ async function jsonFetch(path, body) {
 }
 
 export function startSession({ thread_id }) {
-  return jsonFetch('/start_session', { thread_id })
+  return jsonFetch(`${API_BASE}/start_session`, { thread_id })
 }
 
 export function ask({ session_id, text, search_outside_thread }) {
-  return jsonFetch('/ask', { session_id, text, search_outside_thread })
+  return jsonFetch(`${API_BASE}/ask`, { session_id, text, search_outside_thread })
 }
 

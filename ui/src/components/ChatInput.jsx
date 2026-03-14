@@ -8,6 +8,7 @@ export default function ChatInput({ disabled, onSend }) {
     const trimmed = text.trim()
     if (!trimmed) return
     onSend(trimmed)
+    console.log('text', text)
     setText('')
   }
 
