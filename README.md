@@ -16,11 +16,11 @@ Then open **http://localhost:8000** in your browser. The container runs the **in
 
 ### Run locally
 
-1. **Index (once):** If you have `data/emails.csv` (e.g. from the [Enron dataset](https://www.kaggle.com/datasets/wcukierski/enron-email-dataset)), run:
+1. **Index (once):** From CSV (e.g. [Enron](https://www.kaggle.com/datasets/wcukierski/enron-email-dataset)) or from a directory of `.eml` files:
    ```bash
    python ingest.py
    ```
-   This writes `data/threaded_emails.json`. If you already have that file (e.g. from the dataset-cleaning notebook), you can skip this.
+   Or with a directory of `.eml` files: `python ingest.py --eml-dir path/to/emails`. This writes `data/threaded_emails.json`. If you already have that file (e.g. from the dataset-cleaning notebook), you can skip this.
 
 2. **Backend:** `uvicorn app.main:app --reload --port 8000`
 3. **Frontend:** `cd ui && npm install && npm run dev`
@@ -33,11 +33,11 @@ See **[DATASET.md](DATASET.md)** for source, how the slice was selected, counts,
 ## Retrieval
 
 - **Baseline:** BM25 (keyword) only, implemented with `rank_bm25.BM25Okapi`. Retrieval is **thread-scoped** by default: when a session is tied to a `thread_id`, only chunks from that thread are searched. Optional **search outside thread** (UI toggle or `search_outside_thread=true`) allows global search.
-- **Index:** Emails are stored as one chunk per message (`data/threaded_emails.json`) with `doc_id`, `thread_id`, `message_id`. Attachment chunking (PDF/TXT/HTML, with `page_no` for PDFs) is optional via `ingest.py --attachments-dir`.
+- **Index:** Emails are stored as one chunk per message (`data/threaded_emails.json`) with `doc_id`, `thread_id`, `message_id`. Attachment chunking (PDF/DOCX/TXT/HTML, with `page_no` for PDFs) is optional via `ingest.py --attachments-dir`.
 
 ## Design choices and limitations
 
-- **Sessions:** One session per thread; conversation history is the last few turns (no rolling summary). Entity notes (dates, amounts, filenames) are extracted from the conversation and used in query rewrite; people are not yet extracted.
+- **Sessions:** One session per thread; conversation history is the last few turns (no rolling summary). Entity notes (people, dates, amounts, filenames) are extracted from the conversation and used in query rewrite. Corrections (e.g. “no, I meant the Q3 forecast”) are detected so only the new intent is used for retrieval.
 - **Answering:** Gemini is used to generate answers from retrieved excerpts. Citations are inline `[msg: <message_id>]`; attachment citations `[msg: <id>, page: <n>]` apply when attachment chunks are added.
 - **Free path:** The app runs with the **Gemini API free tier** (set `GEMINI_API_KEY`). No paid resources are required for evaluation.
 

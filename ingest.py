@@ -20,7 +20,7 @@ except ImportError:
 
 
 def parse_email(raw: str) -> dict:
-    """Extract message_id, date, from, to, subject, body from raw email text."""
+    """Extract message_id, date, from, to, subject, body from raw email text (RFC 822 / .eml style)."""
     if not isinstance(raw, str):
         return {}
     data = {}
@@ -39,6 +39,15 @@ def parse_email(raw: str) -> dict:
     else:
         data["message_id"] = data.get("message_id", "")
     return data
+
+
+def load_eml_file(path: Path) -> dict:
+    """Parse a single .eml file; returns same shape as parse_email()."""
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        return parse_email(raw)
+    except Exception:
+        return {}
 
 
 def normalize_subject(subject: str) -> str:
@@ -103,8 +112,34 @@ def extract_html(path: Path) -> list[tuple[int, str]]:
         return []
 
 
+def extract_docx(path: Path) -> list[tuple[int, str]]:
+    """Return [(1, full_text)] for a .docx file. Uses python-docx. Legacy .doc (binary) is not supported."""
+    try:
+        from docx import Document
+    except ImportError:
+        return []
+    out = []
+    try:
+        doc = Document(path)
+        parts = []
+        for para in doc.paragraphs:
+            if para.text:
+                parts.append(para.text)
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text and cell.text.strip():
+                        parts.append(cell.text.strip())
+        text = "\n".join(parts).strip()
+        if text:
+            out.append((1, text))
+    except Exception:
+        pass
+    return out
+
+
 def run_attachment_ingest(attachments_dir: Path, output_path: Path, message_id_from_name: str = "") -> None:
-    """Scan attachments_dir for PDF/TXT/HTML, extract text, chunk, write attachment_chunks.json."""
+    """Scan attachments_dir for PDF/DOC/DOCX/TXT/HTML, extract text, chunk, write attachment_chunks.json."""
     if not attachments_dir.exists():
         return
     chunks_out = []
@@ -129,6 +164,9 @@ def run_attachment_ingest(attachments_dir: Path, output_path: Path, message_id_f
             add_chunks(message_id_from_name or f"att_{f.stem}", page_no, text)
     for f in attachments_dir.rglob("*.html"):
         for page_no, text in extract_html(f):
+            add_chunks(message_id_from_name or f"att_{f.stem}", page_no, text)
+    for f in attachments_dir.rglob("*.docx"):
+        for page_no, text in extract_docx(f):
             add_chunks(message_id_from_name or f"att_{f.stem}", page_no, text)
 
     if chunks_out:
@@ -197,6 +235,71 @@ def run_ingest(
     print(f"Wrote {output_path}: {n_threads} threads, {n_msgs} messages, ~{size_mb:.2f} MB text.")
 
 
+def run_ingest_from_eml_dir(
+    eml_dir: Path,
+    output_path: Path,
+    max_messages: int = 50000,
+    max_threads: int | None = None,
+) -> None:
+    """Load .eml files from a directory, parse, thread, and write threaded_emails.json (same format as CSV ingest)."""
+    if not eml_dir.is_dir():
+        raise FileNotFoundError(f"Eml directory not found: {eml_dir}")
+    eml_files = list(eml_dir.rglob("*.eml"))
+    if not eml_files:
+        raise FileNotFoundError(f"No .eml files found in {eml_dir}")
+    records = []
+    for path in eml_files:
+        parsed = load_eml_file(path)
+        if not parsed.get("subject"):
+            continue
+        parsed["file"] = path.name
+        records.append(parsed)
+    if not records:
+        raise ValueError("No valid emails parsed from .eml files.")
+    df = pd.json_normalize(records)
+    df["subject_clean"] = df["subject"].fillna("").apply(normalize_subject)
+    df_clean = df[df["subject_clean"] != ""].copy()
+    df_clean = df_clean[~df_clean["subject_clean"].isin(["re", "test"])]
+    if df_clean.empty:
+        raise ValueError("No emails left after subject filtering.")
+    thread_sizes = df_clean.groupby("subject_clean").size().sort_values(ascending=False)
+    selected = []
+    count = 0
+    for subj, size in thread_sizes.items():
+        selected.append(subj)
+        count += size
+        if count >= max_messages:
+            break
+        if max_threads is not None and len(selected) >= max_threads:
+            break
+    dataset = df_clean[df_clean["subject_clean"].isin(selected)].copy()
+    thread_map = {s: f"T-{i:03d}" for i, s in enumerate(selected, start=1)}
+    dataset["thread_id"] = dataset["subject_clean"].map(thread_map)
+    out_cols = [
+        "message_id", "date", "from", "to", "cc", "subject", "body",
+        "subject_clean", "thread_id", "x_from", "x_to", "x_folder", "file",
+    ]
+    out_cols = [c for c in out_cols if c in dataset.columns]
+    out_records = dataset[out_cols].to_dict(orient="records")
+    for i, r in enumerate(out_records):
+        r["doc_id"] = f"em_{i}"
+        for k, v in list(r.items()):
+            if pd.isna(v):
+                r[k] = None
+            elif hasattr(v, "item"):
+                try:
+                    r[k] = v.item()
+                except (ValueError, AttributeError):
+                    r[k] = str(v)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(out_records, f, indent=2)
+    n_threads = dataset["thread_id"].nunique()
+    n_msgs = len(out_records)
+    size_mb = dataset["body"].astype(str).str.len().sum() / (1024 * 1024)
+    print(f"Wrote {output_path}: {n_threads} threads, {n_msgs} messages, ~{size_mb:.2f} MB text (from .eml).")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build threaded_emails.json and optional attachment_chunks.json")
     parser.add_argument(
@@ -224,16 +327,25 @@ def main():
         help="Max threads to include (e.g. 20 for 10–20 thread slice). Optional.",
     )
     parser.add_argument(
+        "--eml-dir",
+        type=Path,
+        default=None,
+        help="Optional: directory of .eml files to index instead of CSV (same output format)",
+    )
+    parser.add_argument(
         "--attachments-dir",
         type=Path,
         default=None,
-        help="Optional: directory of PDF/TXT/HTML attachments to index (writes data/attachment_chunks.json)",
+        help="Optional: directory of PDF/DOCX/TXT/HTML attachments to index (writes data/attachment_chunks.json)",
     )
     args = parser.parse_args()
     try:
-        run_ingest(args.emails_csv, args.output, args.max_messages, args.max_threads)
+        if args.eml_dir is not None:
+            run_ingest_from_eml_dir(args.eml_dir, args.output, args.max_messages, args.max_threads)
+        else:
+            run_ingest(args.emails_csv, args.output, args.max_messages, args.max_threads)
     except FileNotFoundError as e:
-        if args.output.exists():
+        if args.output.exists() and args.eml_dir is None:
             print(f"Note: {args.emails_csv} not found; using existing {args.output}.", file=sys.stderr)
         else:
             print(str(e), file=sys.stderr)

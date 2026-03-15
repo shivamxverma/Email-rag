@@ -1,7 +1,35 @@
 import React, { useEffect, useRef } from 'react'
 
+// Match [msg: <id>] or [msg: <id>, page: n] in assistant answers
+const CITATION_RE = /\[msg:\s*[^\]]+\]/g
+
+function formatCitations(answerText, citationsFromApi) {
+  if (!answerText || typeof answerText !== 'string') return { displayText: answerText || '', sources: [] }
+  const seen = new Map()
+  let num = 0
+  const displayText = answerText.replace(CITATION_RE, (match) => {
+    if (!seen.has(match)) {
+      num += 1
+      seen.set(match, num)
+    }
+    return `[${seen.get(match)}]`
+  })
+  const sources = Array.from(seen.entries()).map(([raw, n]) => {
+    const pageMatch = raw.match(/page:\s*(\d+)/i)
+    const idMatch = raw.match(/\[msg:\s*<?([^>\],]+)/)
+    const id = (idMatch && idMatch[1]) ? idMatch[1].trim() : raw
+    const short = id.length > 20 ? id.slice(0, 20) + '…' : id
+    return { num: n, raw, short, page: pageMatch ? pageMatch[1] : null }
+  })
+  return { displayText, sources }
+}
+
 function MessageBubble({ role, text, citations }) {
   const isUser = role === 'user'
+  const { displayText, sources } = !isUser && text
+    ? formatCitations(text, citations)
+    : { displayText: text || '', sources: [] }
+
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
@@ -11,18 +39,23 @@ function MessageBubble({ role, text, citations }) {
             : 'bg-white text-slate-800 border border-slate-200 rounded-bl-md shadow-sm'
         }`}
       >
-        <div className="whitespace-pre-wrap">{text}</div>
-        {!isUser && citations?.length ? (
-          <div className="mt-2.5 flex flex-wrap gap-1.5 border-t border-slate-100 pt-2">
-            {citations.map((c, idx) => (
-              <span
-                key={`${c}-${idx}`}
-                className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-600"
-                title="citation"
-              >
-                {c}
-              </span>
-            ))}
+        <div className="whitespace-pre-wrap">{displayText}</div>
+        {!isUser && sources.length > 0 ? (
+          <div className="mt-3 border-t border-slate-100 pt-2.5">
+            <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">Sources</p>
+            <div className="flex flex-wrap gap-2">
+              {sources.map(({ num, raw, short, page }) => (
+                <span
+                  key={`${num}-${short}`}
+                  className="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-700"
+                  title={raw}
+                >
+                  <span className="mr-1 font-semibold text-slate-600">[{num}]</span>
+                  <span className="font-mono">{short}</span>
+                  {page != null ? <span className="ml-1 text-slate-500">p.{page}</span> : null}
+                </span>
+              ))}
+            </div>
           </div>
         ) : null}
       </div>

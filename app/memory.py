@@ -12,12 +12,46 @@ RE_DATE = re.compile(
 RE_AMOUNT = re.compile(r"\b(\$?\d+(?:,\d{3})*(?:\.\d{2})?\s*(?:dollars?|USD|million|M|K)?)\b", re.I)
 RE_FILENAME = re.compile(r"\b([a-zA-Z0-9_\-]+\.(?:pdf|doc|xls|xlsx|docx|txt|html))\b", re.I)
 
+# People: "X said/wrote/replied", "from X", "to X", and quoted "X" (simple patterns)
+RE_PEOPLE_SAID = re.compile(
+    r"(?:^|[\s.])([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s+(?:said|wrote|replied|mentioned|asked|approved|sent)\b",
+    re.I,
+)
+RE_PEOPLE_FROM_TO = re.compile(
+    r"\b(?:from|to)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b",
+    re.I,
+)
+RE_PEOPLE_QUOTED = re.compile(r'["\']([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)["\']', re.I)
+
+
+def _normalize_person(name: str) -> str:
+    """Strip trailing punctuation and normalize whitespace."""
+    if not name or not isinstance(name, str):
+        return ""
+    name = name.strip().strip(".,;:")
+    return name if len(name) > 1 else ""
+
+
+def _extract_people(text: str) -> list:
+    """Extract person names from conversation using simple patterns."""
+    if not text:
+        return []
+    seen = set()
+    out = []
+    for pattern in (RE_PEOPLE_SAID, RE_PEOPLE_FROM_TO, RE_PEOPLE_QUOTED):
+        for m in pattern.finditer(text):
+            name = _normalize_person(m.group(1))
+            if name and name.lower() not in seen and len(name) > 1:
+                seen.add(name.lower())
+                out.append(name)
+    return out
+
 
 def _extract_entities(text: str) -> dict:
     if not text:
         return {"people": [], "dates": [], "amounts": [], "filenames": []}
     return {
-        "people": [],  # skip NER for now; could add from "X said" or email headers
+        "people": _extract_people(text),
         "dates": list(dict.fromkeys(RE_DATE.findall(text))),
         "amounts": list(dict.fromkeys(RE_AMOUNT.findall(text))),
         "filenames": list(dict.fromkeys(RE_FILENAME.findall(text))),
@@ -53,6 +87,8 @@ def get_entity_context(session_id: str) -> str:
         return ""
     ent = sessions[session_id].get("entities", {})
     parts = []
+    if ent.get("people"):
+        parts.append("people: " + ", ".join(ent["people"][:5]))
     if ent.get("filenames"):
         parts.append("filenames: " + ", ".join(ent["filenames"][:3]))
     if ent.get("dates"):

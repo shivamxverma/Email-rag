@@ -19,9 +19,10 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5174", "http://127.0.0.1:5174", "http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["http://localhost:5174", "http://127.0.0.1:5174", "http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",  # any localhost port (e.g. Vite 5175, 5176)
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -54,8 +55,16 @@ def log_trace(data):
 
 # -------- query rewrite --------
 
+# Phrases that indicate the user is correcting or clarifying the previous question
+CORRECTION_PHRASES = (
+    "no,", "no ", "actually", "i meant", "i mean", "sorry,", "correction:",
+    "correction ", "wait,", "rather,", "instead ", "not that",
+)
+
+
 def rewrite_query(session_id, query):
-    """Rewrite using last turn and entity notes so 'that', 'it', 'the draft' resolve better."""
+    """Rewrite using last turn and entity notes so 'that', 'it', 'the draft' resolve better.
+    When the user corrects (e.g. 'no, I meant the Q3 forecast'), use only the current message + context."""
     history = sessions[session_id]["history"]
     entity_ctx = get_entity_context(session_id)
 
@@ -66,7 +75,13 @@ def rewrite_query(session_id, query):
     )
     if need_context and entity_ctx:
         query = query + " " + entity_ctx
-    if history:
+
+    # Correction: user is replacing/clarifying the previous question — don't prepend last turn
+    q_lower = query.lower().strip()
+    is_correction = any(q_lower.startswith(p.strip()) for p in CORRECTION_PHRASES)
+    if is_correction:
+        rewritten = query
+    elif history:
         last_turn = history[-1]["user"]
         rewritten = last_turn + " " + query
     else:
