@@ -58,6 +58,4 @@ Format:
     - **Must cite:** The message in question.  
     - **Example citation:** `[msg: <message_id>]`.
 
----
-
-**Note:** Actual `message_id` values are long strings (e.g. `<13353987.1075840740413.JavaMail.evans@thyme>`). The evaluator should check that the cited IDs appear in the retrieved set and in the answer text. For threads with attachments, add questions that require **page-level** citations and expect `[msg: <message_id>, page: <n>]`.
+--

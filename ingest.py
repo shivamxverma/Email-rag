@@ -5,6 +5,12 @@ Run from project root: python ingest.py [--emails-csv path] [--output path]
 If data/emails.csv is missing, use data/threaded_emails.json if present; otherwise exit with instructions.
 """
 
+""" Command to run the script:
+ingest.py \                                                             
+  --emails-csv "notebook/data/emails.csv" \
+  --output "data/threaded_emails1.json"
+"""
+
 import argparse
 import json
 import os
